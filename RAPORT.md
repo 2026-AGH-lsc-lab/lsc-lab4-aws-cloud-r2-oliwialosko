@@ -44,20 +44,7 @@ When analyzing the results, there is a noticeable discrepancy between the execut
 ### Latency Data
 All endpoints were warmed up prior to testing. Due to AWS Academy limits, Lambda concurrency was strictly capped at 10. The table below represents the performance of all four environments across different concurrency (`c`) levels.
 
-| Environment | Concurrency | p50 (ms) | p95 (ms) | p99 (ms) | Server avg (ms) |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| Lambda (zip) | c=5 | 312 | 420 | 435 | 65.2 |
-| Lambda (zip) | c=10 | 313 | 421 | 436 | 66.0 |
-| Lambda (container) | c=5 | 320 | 425 | 440 | 64.6 |
-| Lambda (container) | c=10 | 321 | 426 | 441 | 64.3 |
-| Fargate | c=10 | 894 | 1632 | 2111* | 954.2 |
-| Fargate | c=50 | 4200 | 8100 | 9500* | 954.2 |
-| EC2 | c=10 | 851 | 1612 | 1785* | 962.8 |
-| EC2 | c=50 | 3900 | 7800 | 8900* | 962.8 |
-
-*(\* denote significant tail latency inflation, indicating potential queueing or instability at the 99th percentile under sustained load).*
-
-The completed table is also available in `results/figures/figure4_latancy_table.png`
+The completed table is available in `results/figures/figure4_latancy_table.png`
 
 ### Analysis
 
