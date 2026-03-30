@@ -86,7 +86,7 @@ To make AWS Lambda successfully meet the p99 < 500ms SLO during a burst from zer
 **Goal:** Compute the idle cost of each environment.
 
 ### Pricing Data Source & Screenshots
-*Note: Screenshots of the current AWS pricing pages for Lambda and Fargate are saved in the `results/figures/pricing-screenshots/` directory with the date visible. During the execution of this assignment, the official AWS EC2 On-Demand pricing web page experienced a loading timeout/outage. To ensure accurate calculations without delay, the standard baseline price for a Linux `t3.small` instance in the `us-east-1` region ($0.0208/hour) was verified using the official AWS Pricing API / alternative official AWS documentation fallbacks.*
+* Screenshots of the current AWS pricing pages for Lambda and Fargate are saved in the `results/figures/pricing-screenshots/` directory with the date visible. During the execution of this assignment, the official AWS EC2 On-Demand pricing web page experienced a loading timeout/outage. To ensure accurate calculations without delay, the standard baseline price for a Linux instance in the `us-east-1` region ($0.0208/hour) was retrieved with the assistance of an AI chatbot (Gemini), which cross-referenced official AWS documentation and pricing APIs to bypass the outage. *
 
 **1. Hourly Idle Cost**
 * **AWS Lambda:** $0.00 / hour
@@ -130,19 +130,19 @@ To find when Lambda becomes more expensive than Fargate ($17.77/month), we solve
 * Convert to RPS: `6,346,428 / (30 days × 24h × 3600s) = 2.45 RPS`
 * **Result:** Lambda becomes more expensive than Fargate when the average steady-state traffic exceeds **2.45 RPS**.
 
-*(Note: The Cost vs. RPS line chart visually illustrating this break-even analysis is saved in the `results/figures/figure2_cost_vs_rps.png`).*
+*The Cost vs. RPS line chart visually illustrating this break-even analysis is saved in the `results/figures/figure2_cost_vs_rps.png`.*
 
 ### 3. Recommendation and SLO Analysis
 
 **Primary Environment Recommendation**
-Given the strict Service Level Objective (p99 < 500ms) and the specified daily traffic model (18 hours of zero traffic, 5.5 hours at 5 RPS, and a predictable 30-minute peak of 100 RPS), my definitive recommendation is to provision an **Amazon EC2 (t3.small)** environment.
+Given the strict Service Level Objective (p99 < 500ms) and the specified daily traffic model (18 hours of zero traffic, 5.5 hours at 5 RPS, and a predictable 30-minute peak of 100 RPS), my definitive recommendation is to provision an **Amazon EC2** environment.
 
 *Justification based on measurements:*
-Based on Scenario B measurements, the Lambda handler duration (p50) is relatively high at 312ms. Because AWS Lambda bills per millisecond of execution, this high duration pushes the break-even point to just 2.45 RPS. Since our traffic model averages ~3.23 RPS, Lambda becomes the most expensive option at $23.43/month. As demonstrated by the Pareto Frontier analysis (Figure 3), EC2 `t3.small` dominates the other architectures by providing both the most cost-effective baseline at $14.98/month and the lowest burst tail latency (p99 = 1786ms), while Fargate suffered from severe queuing (p99 = 4358ms) and Lambda was heavily penalized by cold starts (p99 = 7339ms).
+Based on Scenario B measurements, the Lambda handler duration (p50) is relatively high at 312ms. Because AWS Lambda bills per millisecond of execution, this high duration pushes the break-even point to just 2.45 RPS. Since our traffic model averages ~3.23 RPS, Lambda becomes the most expensive option at $23.43/month. As demonstrated by the Pareto Frontier analysis (Figure 3), EC2 dominates the other architectures by providing both the most cost-effective baseline at $14.98/month and the lowest burst tail latency (p99 = 1786ms), while Fargate suffered from severe queuing (p99 = 4358ms) and Lambda was heavily penalized by cold starts (p99 = 7339ms).
 
 
 **SLO Compliance & Required Architectural Changes**
-Out of the box, does the EC2 environment meet the strict rule of keeping 99% of responses under 500ms? **No.** When 100 requests hit the single `t3.small` server all at once during the daily peak, it simply cannot process them fast enough. The requests pile up in a queue, pushing the delay up to 1.78 seconds.
+Out of the box, does the EC2 environment meet the strict rule of keeping 99% of responses under 500ms? **No.** When 100 requests hit the server all at once during the daily peak, it simply cannot process them fast enough. The requests pile up in a queue, pushing the delay up to 1.78 seconds.
 
 To fix this and successfully meet the 500ms goal, we need to add a Load Balancer (ALB) and set up Auto Scaling (ASG). Since we know exactly when the 30-minute traffic spike happens every day, we can use a "Scheduled Scaling Policy." This simply means telling AWS to automatically turn on a few extra EC2 servers 10 minutes before the rush hour starts. This way, the servers are ready and waiting, so no user gets stuck in a queue.
 
