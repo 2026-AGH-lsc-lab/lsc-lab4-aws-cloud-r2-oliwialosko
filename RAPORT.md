@@ -4,9 +4,9 @@
 The primary goal of this project is to measure latency (cold start, warm throughput, burst) and cost of three AWS execution environments — Lambda, Fargate, and EC2 — running an identical k-NN workload. The project also aims to build a cost model, find the break-even point, and make a quantified architectural recommendation.
 
 ## Challenges & Alternative Scenarios (The 403 Forbidden Error)
-During the initial load testing phase, I encountered a persistent **HTTP 403 Forbidden** error when testing AWS Lambda. Because the AWS Academy environment utilizes strict, temporary session tokens, the SigV4 signing process required by the `oha` load-testing tool was continuously rejected by AWS Identity and Access Management (IAM). 
+During the initial load testing phase, I encountered a persistent **HTTP 403 Forbidden** error when testing AWS Lambda. Because the AWS Academy environment utilizes strict, temporary session tokens, the SigV4 signing process required by the `oha` load-testing tool was continuously rejected by AWS.
 
-To adapt to these strict environment constraints without violating the lab's rules, I adjusted my approach. Instead of using `oha` for Lambda, with the assistance of AI chat tools, I designed alternative testing scripts using the native `aws lambda invoke` CLI command. This bypassed the SigV4 proxy issue while still allowing me to collect accurate server-side metrics directly from AWS CloudWatch. All of these alternative scripts can be found in the `loadtests/` directory.
+To adapt to these strict environment constraints, instead of using `oha` for Lambda, with the assistance of AI chat tools, I designed alternative testing scripts using the native `aws lambda invoke` CLI command. This bypassed the SigV4 proxy issue while still allowing me to collect accurate server-side metrics directly from AWS CloudWatch. All of these alternative scripts can be found in the `loadtests/` directory.
 
 ---
 
@@ -23,7 +23,8 @@ To adapt to these strict environment constraints without violating the lab's rul
 ### Client vs. Server Time Analysis 
 When analyzing the results, there is a noticeable discrepancy between the execution time reported by the client and the server.
 * **Server Time (AWS CloudWatch)**: This is the time measured internally by AWS. For the very first request, it includes the `Init Duration` (the time AWS needs to provision the execution environment) and the actual code execution time (`Duration`).
-* **Client Time**: This is the total round-trip time experienced from my local machine. It is significantly higher because it includes the Server Time *plus* network latency (Network RTT), DNS resolution, TLS handshakes, and Lambda Function URL routing overhead.
+* **Client Time**: This is the total round-trip time experienced from my local machine. It is significantly higher because it includes the Server Time *plus* network latency (Network RTT), TLS handshakes, and Lambda Function URL routing overhead.
+* 
 - **Results & Graph**:
 
   - The visualization comparing the response times of both variants is available in `results/figures/figure1_decomposition.png`, and the raw data can be found in `results/scenario-a-*-fixed.txt`.
@@ -42,15 +43,14 @@ When analyzing the results, there is a noticeable discrepancy between the execut
 **Goal:** Measure per-request latency at sustained load across all four environments.
 
 ### Latency Data
-All endpoints were warmed up prior to testing. Due to AWS Academy limits, Lambda concurrency was strictly capped at 10. The table below represents the performance of all four environments across different concurrency (`c`) levels.
+All endpoints were warmed up prior to testing. Due to AWS Academy limits, Lambda concurrency was strictly capped at 10. The table available in `results/figures/figure4_latancy_table.png` represents the performance of all four environments across different concurrency levels.
 
-The completed table is available in `results/figures/figure4_latancy_table.png`
 
 ### Analysis
 
 **1. Concurrency Scaling Behavior (Lambda vs. Always-On)**
 As seen in the table, Lambda's p50 latency stays almost completely flat when concurrency increases from `c=5` to `c=10` (~312ms to ~313ms). This happens because Lambda scales purely horizontally; AWS provisions a dedicated, isolated execution environment for every concurrent request, meaning requests do not compete for the same CPU cycles.
-In contrast, Fargate and EC2 experience a massive p50 latency spike (jumping from ~850ms to ~4000ms) when concurrency increases from `c=10` to `c=50`. Because these environments utilize a single, fixed-capacity instance/task (e.g., a `t3.small` with 2 vCPUs), the sudden influx of 50 concurrent requests causes severe resource contention and thread queuing. 
+In contrast, Fargate and EC2 experience a massive p50 latency spike (jumping from ~850ms to ~4000ms) when concurrency increases from `c=10` to `c=50`. Because these environments utilize a single, fixed-capacity instance/task, the sudden influx of 50 concurrent requests causes severe resource contention and thread queuing. 
 
 **2. Server-side vs. Client-side Latency Discrepancy**
 There is a massive difference between Lambda's `Server avg` (~65ms) and the client-side `p50` (~312ms). This discrepancy of roughly ~240ms is almost entirely caused by physical geographic limitations. The client-side tests were executed from a local machine in Poland, while the AWS resources were hosted in the `us-east-1` (N. Virginia) region. The cross-continent Network RTT (trans-Atlantic fiber optic transit) adds a hard physical delay to every client measurement, whereas the `Server avg` reflects purely the internal compute time within the AWS data center.
@@ -86,7 +86,7 @@ To make AWS Lambda successfully meet the p99 < 500ms SLO during a burst from zer
 **Goal:** Compute the idle cost of each environment.
 
 ### Pricing Data Source & Screenshots
-* Screenshots of the current AWS pricing pages for Lambda and Fargate are saved in the `results/figures/pricing-screenshots/` directory with the date visible. During the execution of this assignment, the official AWS EC2 On-Demand pricing web page experienced a loading timeout/outage. To ensure accurate calculations without delay, the standard baseline price for a Linux instance in the `us-east-1` region ($0.0208/hour) was retrieved with the assistance of an AI chatbot (Gemini), which cross-referenced official AWS documentation and pricing APIs to bypass the outage. *
+* Screenshots of the current AWS pricing pages for Lambda and Fargate are saved in the `results/figures/pricing-screenshots/` directory with the date visible. During the execution of this assignment, the official AWS EC2 On-Demand pricing web page experienced a loading timeout. To ensure accurate calculations without delay, the standard baseline price for a Linux instance in the `us-east-1` region ($0.0208/hour) was retrieved with the assistance of an AI chatbot (Gemini), which cross-referenced official AWS documentation and pricing APIs to bypass the outage. *
 
 **1. Hourly Idle Cost**
 * **AWS Lambda:** $0.00 / hour
@@ -132,22 +132,19 @@ To find when Lambda becomes more expensive than Fargate ($17.77/month), we solve
 
 *The Cost vs. RPS line chart visually illustrating this break-even analysis is saved in the `results/figures/figure2_cost_vs_rps.png`.*
 
-### 3. Recommendation and SLO Analysis
+### 3. Recommendation
 
-**Primary Environment Recommendation**
-Given the strict Service Level Objective (p99 < 500ms) and the specified daily traffic model (18 hours of zero traffic, 5.5 hours at 5 RPS, and a predictable 30-minute peak of 100 RPS), my definitive recommendation is to provision an **Amazon EC2** environment.
+Given the strict Service Level Objective (p99 < 500ms) and the specified daily traffic model (18 hours of zero traffic, 5.5 hours at 5 RPS, and a predictable 30-minute peak of 100 RPS), my recommendation is to provision an **Amazon EC2** environment.
 
 *Justification based on measurements:*
-Based on Scenario B measurements, the Lambda handler duration (p50) is relatively high at 312ms. Because AWS Lambda bills per millisecond of execution, this high duration pushes the break-even point to just 2.45 RPS. Since our traffic model averages ~3.23 RPS, Lambda becomes the most expensive option at $23.43/month. As demonstrated by the Pareto Frontier analysis (Figure 3), EC2 dominates the other architectures by providing both the most cost-effective baseline at $14.98/month and the lowest burst tail latency (p99 = 1786ms), while Fargate suffered from severe queuing (p99 = 4358ms) and Lambda was heavily penalized by cold starts (p99 = 7339ms).
+Based on Scenario B measurements, the Lambda handler duration (p50) is relatively high at 312ms. Because AWS Lambda bills per millisecond of execution, this high duration pushes the break-even point to just 2.45 RPS. Since our traffic model averages ~3.23 RPS, Lambda becomes the most expensive option at $23.43/month. As demonstrated by the Pareto Frontier analysis, EC2 dominates the other architectures by providing both the most cost-effective baseline at $14.98/month and the lowest burst latency (p99 = 1786ms), while Fargate suffered from queuing and Lambda was heavily penalized by cold starts.
 
+The EC2 environment also doesn't meet the strict rule of keeping 99% of responses under 500ms? When 100 requests hit the server all at once during the daily peak, it simply cannot process them fast enough. The requests pile up in a queue, pushing the delay up to 1.78 seconds.
 
-**SLO Compliance & Required Architectural Changes**
-Out of the box, does the EC2 environment meet the strict rule of keeping 99% of responses under 500ms? **No.** When 100 requests hit the server all at once during the daily peak, it simply cannot process them fast enough. The requests pile up in a queue, pushing the delay up to 1.78 seconds.
-
-To fix this and successfully meet the 500ms goal, we need to add a Load Balancer (ALB) and set up Auto Scaling (ASG). Since we know exactly when the 30-minute traffic spike happens every day, we can use a "Scheduled Scaling Policy." This simply means telling AWS to automatically turn on a few extra EC2 servers 10 minutes before the rush hour starts. This way, the servers are ready and waiting, so no user gets stuck in a queue.
+There is a possibility to fix this and successfully meet the 500ms goal. For it to happen we can add for example a Load Balancer (ALB) and set up Auto Scaling (ASG) and use a "Scheduled Scaling Policy." This simply means telling AWS to automatically turn on a few extra EC2 servers 10 minutes before the rush hour starts. This way, the servers are ready and waiting, so no user gets stuck in a queue.
 
 **Analysis of Rejected Alternatives**
 
-Why not AWS Lambda? To make Lambda meet the 500ms SLO during the 100 RPS burst, we would have to eliminate the 7.3-second cold starts by enabling Provisioned Concurrency for at least 100 execution environments. Maintaining 100 warm environments 24/7 would incur massive hourly charges, completely invalidating the financial benefits of the Serverless model and making it astronomically more expensive than EC2.
+Why not AWS Lambda? To make Lambda meet the 500ms SLO during the 100 RPS burst, we would have to eliminate the 7.3-second cold starts by enabling Provisioned Concurrency for at least 100 execution environments. Maintaining 100 warm environments 24/7 would incur massive hourly charges, completely invalidating the financial benefits of the Serverless model and making it much more expensive than EC2.
 
 Why not AWS Fargate? Fargate requires a similar Auto Scaling setup (ECS Service Auto Scaling) to handle the burst, but its baseline cost ($17.77/mo) is higher than EC2, and our load tests showed it struggles more with request queuing under sudden spikes (p99 of 4.35s vs EC2's 1.78s).
